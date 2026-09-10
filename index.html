@@ -334,12 +334,10 @@
 // ──────────────────────────────────────────────
 // CONFIG — แก้ตรงนี้ หรือใช้ปุ่ม ⚙ CONFIG
 // ──────────────────────────────────────────────
-//let SUPABASE_URL = localStorage.getItem('hq_url') || 'https://YOUR_PROJECT.supabase.co';
-//let SUPABASE_KEY = localStorage.getItem('hq_key') || 'YOUR_ANON_KEY';
-let SUPABASE_URL = localStorage.getItem('hq_url') || 'https://acfwyzfntiuackcnarvo.supabase.co';
-let SUPABASE_KEY = localStorage.getItem('hq_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFjZnd5emZudGl1YWNrY25hcnZvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkwMjkzMTEsImV4cCI6MjEwNDYwNTMxMX0.WcfGuDP6geA_ug3v1RYy0fVDLKhizaTKfL-8bky4wRQ';
+let SUPABASE_URL = localStorage.getItem('hq_url') || 'https://YOUR_PROJECT.supabase.co';
+let SUPABASE_KEY = localStorage.getItem('hq_key') || 'YOUR_ANON_KEY';
 
-let supabase = null;
+let sbClient = null;   // renamed to avoid clash with window.supabase
 let currentUser = null;
 let currentUserProfile = null;
 let msgChannel = null;
@@ -398,8 +396,8 @@ window.addEventListener('DOMContentLoaded', () => {
 
 function initSupabase() {
   try {
-    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    sbClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    sbClient.auth.getSession().then(({ data: { session } }) => {
       if (session) {
         onLogin(session.user);
       } else {
@@ -466,10 +464,10 @@ async function doLogin() {
   const err      = document.getElementById('login-err');
   err.style.display = 'none';
   if (!username) { err.textContent = 'กรุณาใส่ username'; err.style.display = 'block'; return; }
-  if (!supabase) { enterDemoMode(); return; }
+  if (!sbClient) { enterDemoMode(); return; }
 
   // lookup email จาก profiles table ด้วย username
-  const { data: profile, error: profErr } = await supabase
+  const { data: profile, error: profErr } = await sbClient
     .from('profiles')
     .select('email')
     .eq('username', username)
@@ -481,13 +479,13 @@ async function doLogin() {
     return;
   }
 
-  const { data, error } = await supabase.auth.signInWithPassword({ email: profile.email, password: pass });
+  const { data, error } = await sbClient.auth.signInWithPassword({ email: profile.email, password: pass });
   if (error) { err.textContent = error.message; err.style.display = 'block'; return; }
   onLogin(data.user);
 }
 
 async function doLogout() {
-  if (supabase) await supabase.auth.signOut();
+  if (sbClient) await sbClient.auth.signOut();
   location.reload();
 }
 
@@ -505,7 +503,7 @@ async function onLogin(user) {
 // ──────────────────────────────────────────────
 async function loadInitialData() {
   // messages
-  const { data: msgs } = await supabase
+  const { data: msgs } = await sbClient
     .from('messages')
     .select('*')
     .order('created_at', { ascending: true })
@@ -513,12 +511,12 @@ async function loadInitialData() {
   if (msgs) msgs.forEach(m => appendMsg(normalizeMsg(m)));
 
   // agents
-  const { data: agents } = await supabase.from('agents').select('*');
+  const { data: agents } = await sbClient.from('agents').select('*');
   if (agents) renderAgents(agents.map(normalizeAgent));
   else renderAgents(AGENT_DEFS);
 
   // tasks
-  const { data: tasks } = await supabase
+  const { data: tasks } = await sbClient
     .from('tasks')
     .select('*')
     .order('created_at', { ascending: false })
@@ -547,7 +545,7 @@ function normalizeAgent(a) {
 // REALTIME
 // ──────────────────────────────────────────────
 function subscribeRealtime() {
-  msgChannel = supabase
+  msgChannel = sbClient
     .channel('messages')
     .on('postgres_changes', { event:'INSERT', schema:'public', table:'messages' }, payload => {
       appendMsg(normalizeMsg(payload.new));
@@ -555,20 +553,20 @@ function subscribeRealtime() {
     })
     .subscribe();
 
-  agentChannel = supabase
+  agentChannel = sbClient
     .channel('agents')
     .on('postgres_changes', { event:'*', schema:'public', table:'agents' }, payload => {
       // refresh agent list
-      supabase.from('agents').select('*').then(({ data }) => {
+      sbClient.from('agents').select('*').then(({ data }) => {
         if (data) renderAgents(data.map(normalizeAgent));
       });
     })
     .subscribe();
 
-  taskChannel = supabase
+  taskChannel = sbClient
     .channel('tasks')
     .on('postgres_changes', { event:'*', schema:'public', table:'tasks' }, payload => {
-      supabase.from('tasks').select('*').order('created_at',{ascending:false}).limit(50)
+      sbClient.from('tasks').select('*').order('created_at',{ascending:false}).limit(50)
         .then(({ data }) => { if (data) renderTasks(data); });
     })
     .subscribe();
@@ -594,7 +592,7 @@ async function sendMessage() {
     return;
   }
 
-  const { error } = await supabase.from('messages').insert({
+  const { error } = await sbClient.from('messages').insert({
     content:     text,
     sender_id:   currentUser?.id || 'user',
     sender_name: currentUserProfile?.display_name || 'YOU',

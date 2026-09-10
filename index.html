@@ -39,6 +39,15 @@
     #sidebar.open, #taskpanel.open { display: flex; flex-direction: column; position: fixed; z-index: 50; top: 44px; bottom: 0; width: 85vw; max-width: 320px; }
     #sidebar.open { left: 0; }
     #taskpanel.open { right: 0; }
+    /* mobile chat */
+    #msg-scroll { padding: 10px; }
+    .msg-bubble { max-width: 85%; font-size: 13px; }
+    .bubble-you { max-width: 85% !important; }
+    #input-area { padding: 8px 10px; gap: 6px; }
+    #msg-input  { font-size: 16px; } /* ป้องกัน iOS zoom */
+    #send-btn   { padding: 9px 10px; font-size: 11px; }
+    .logo       { font-size: 13px; }
+    .task-card  { margin: 4px 6px; }
   }
 
   /* ── Topbar ── */
@@ -102,7 +111,7 @@
   #msg-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
 
   /* ── Messages ── */
-  .msg-group { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
+  .msg-group { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; align-items: flex-start; }
   .msg-header {
     display: flex; align-items: baseline; gap: 8px;
     font-family: 'JetBrains Mono', monospace; font-size: 11px;
@@ -115,6 +124,18 @@
     background: var(--bg2); border-left: 3px solid;
     font-size: 13px; line-height: 1.55; word-break: break-word;
   }
+  /* YOU bubble — ขวา */
+  .sender-user .msg-group { align-items: flex-end; }
+  .bubble-you {
+    align-self: flex-end !important;
+    border-radius: 8px 2px 8px 8px !important;
+    background: #1A2E4A !important;
+    border-left: none !important;
+    border-right: 3px solid var(--col-user) !important;
+    text-align: left;
+  }
+  .sender-user .msg-header { flex-direction: row-reverse; }
+
   .msg-bubble.system {
     align-self: center; background: transparent; border-left: none;
     color: var(--text-dim); font-size: 11px; font-style: italic;
@@ -772,10 +793,34 @@ function appendMsg(m) {
     scroll.appendChild(group);
   }
   const bubble = document.createElement('div');
-  bubble.className = 'msg-bubble';
-  bubble.textContent = m.content;
+  bubble.className = 'msg-bubble' + (m.sender_id === 'user' ? ' bubble-you' : '');
+  bubble.innerHTML = renderContent(m.content);
   group.appendChild(bubble);
   lastSender = m.sender_id;
+}
+
+function renderContent(raw) {
+  if (!raw) return '';
+  // แยก segments: markdown link, plain url, และข้อความธรรมดา
+  const parts = [];
+  const re = /\[([^\]]+)\]\((https?:\/\/[^)]+)\)|(https?:\/\/[^\s]+)/g;
+  let last = 0, m;
+  while ((m = re.exec(raw)) !== null) {
+    if (m.index > last) parts.push({ type:'text', val: raw.slice(last, m.index) });
+    if (m[1]) {
+      parts.push({ type:'mdlink', label: m[1], url: m[2] });
+    } else {
+      parts.push({ type:'url', url: m[3] });
+    }
+    last = re.lastIndex;
+  }
+  if (last < raw.length) parts.push({ type:'text', val: raw.slice(last) });
+
+  return parts.map(p => {
+    if (p.type === 'text')   return esc(p.val);
+    if (p.type === 'mdlink') return `<a href="${esc(p.url)}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline;">📎 ${esc(p.label)}</a>`;
+    if (p.type === 'url')    return `<a href="${esc(p.url)}" target="_blank" rel="noopener" style="color:var(--accent);">${esc(p.url)}</a>`;
+  }).join('');
 }
 
 let allTasks = [];
@@ -857,7 +902,12 @@ function hideTyping()     { document.getElementById('typing-indicator').textCont
 
 function esc(str) { const d=document.createElement('div'); d.textContent=str||''; return d.innerHTML; }
 function fmt(d) {
-  return d.toLocaleTimeString('th-TH', { hour:'2-digit', minute:'2-digit', hour12:false });
+  const now   = new Date();
+  const sameDay = d.toDateString() === now.toDateString();
+  const time  = d.toLocaleTimeString('th-TH', { hour:'2-digit', minute:'2-digit', hour12:false });
+  if (sameDay) return time;
+  const date = d.toLocaleDateString('th-TH', { day:'numeric', month:'short' });
+  return `${date} ${time}`;
 }
 
 // ──────────────────────────────────────────────

@@ -239,6 +239,18 @@
   #agent-list::-webkit-scrollbar-thumb, #task-list::-webkit-scrollbar-thumb { background: var(--border); }
 
   .typing-indicator { color: var(--text-dim); font-size: 11px; font-style: italic; padding: 0 16px 8px; height: 20px; }
+  #file-preview { display:flex; flex-wrap:wrap; gap:6px; padding:6px 16px; }
+  .file-chip {
+    display:flex; align-items:center; gap:6px; padding:4px 10px;
+    background:var(--bg3); border:1px solid var(--border); border-radius:12px;
+    font-size:11px; font-family:'JetBrains Mono',monospace; color:var(--text);
+  }
+  .file-chip .remove { cursor:pointer; color:var(--text-dim); }
+  .file-chip .remove:hover { color:var(--col-tst); }
+  .upload-progress {
+    font-size:11px; color:var(--accent); padding:0 16px 6px;
+    font-family:'JetBrains Mono',monospace;
+  }
 </style>
 </head>
 <body>
@@ -316,10 +328,15 @@
     </div>
     <div id="msg-scroll"></div>
     <div class="typing-indicator" id="typing-indicator"></div>
+    <div id="file-preview"></div>
+    <div class="upload-progress" id="upload-progress"></div>
     <div id="input-area">
+      <label class="icon-btn" title="แนบไฟล์" style="cursor:pointer;height:40px;display:flex;align-items:center;">
+        📎<input type="file" id="file-input" style="display:none" onchange="handleFileSelect(event)" multiple>
+      </label>
       <textarea id="msg-input" rows="1" placeholder="ส่งข้อความถึง Team…"
         onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
-      <button id="send-btn" onclick="sendMessage()">SEND</button>
+      <button id="send-btn" onclick="sendMessageWithFiles()">SEND</button>
     </div>
   </main>
 
@@ -331,6 +348,8 @@
 
 </div>
 
+<!-- Google API -->
+<script src="https://accounts.google.com/gsi/client" async defer></script>
 <!-- Supabase CDN -->
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
@@ -339,6 +358,12 @@
 // ──────────────────────────────────────────────
 let SUPABASE_URL = localStorage.getItem('hq_url') || 'https://acfwyzfntiuackcnarvo.supabase.co';
 let SUPABASE_KEY = localStorage.getItem('hq_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFjZnd5emZudGl1YWNrY25hcnZvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkwMjkzMTEsImV4cCI6MjEwNDYwNTMxMX0.WcfGuDP6geA_ug3v1RYy0fVDLKhizaTKfL-8bky4wRQ';
+
+// ── Google Drive Config ──
+const DRIVE_CLIENT_ID = '82768081306-63fmeug3rgiisiuvq9roecb3198re5au.apps.googleusercontent.com';
+const DRIVE_FOLDER_ID = '15_iHqmzO-EkM_jZQI6gwkjZkkIO5oQTW';
+const DRIVE_SCOPE     = 'https://www.googleapis.com/auth/drive.file';
+let   driveToken      = null;
 
 let sbClient = null;   // renamed to avoid clash with window.supabase
 let currentUser = null;
@@ -729,6 +754,130 @@ function hideTyping()     { document.getElementById('typing-indicator').textCont
 function esc(str) { const d=document.createElement('div'); d.textContent=str||''; return d.innerHTML; }
 function fmt(d) {
   return d.toLocaleTimeString('th-TH', { hour:'2-digit', minute:'2-digit', hour12:false });
+}
+
+// ──────────────────────────────────────────────
+// GOOGLE DRIVE — FILE UPLOAD
+// ──────────────────────────────────────────────
+let pendingFiles = [];
+
+function handleFileSelect(e) {
+  const files = Array.from(e.target.files);
+  files.forEach(f => {
+    pendingFiles.push(f);
+    addFileChip(f);
+  });
+  e.target.value = '';
+}
+
+function addFileChip(file) {
+  const preview = document.getElementById('file-preview');
+  const chip = document.createElement('div');
+  chip.className = 'file-chip';
+  chip.id = 'chip-' + file.name;
+  chip.innerHTML = `📄 ${esc(file.name)} <span class="remove" onclick="removeFile('${esc(file.name)}')">✕</span>`;
+  preview.appendChild(chip);
+}
+
+function removeFile(name) {
+  pendingFiles = pendingFiles.filter(f => f.name !== name);
+  const chip = document.getElementById('chip-' + name);
+  if (chip) chip.remove();
+}
+
+function clearFiles() {
+  pendingFiles = [];
+  document.getElementById('file-preview').innerHTML = '';
+}
+
+async function getDriveToken() {
+  return new Promise((resolve, reject) => {
+    if (driveToken) { resolve(driveToken); return; }
+    const client = google.accounts.oauth2.initTokenClient({
+      client_id: DRIVE_CLIENT_ID,
+      scope:     DRIVE_SCOPE,
+      callback:  (resp) => {
+        if (resp.error) { reject(resp.error); return; }
+        driveToken = resp.access_token;
+        resolve(driveToken);
+      }
+    });
+    client.requestAccessToken({ prompt: 'consent' });
+  });
+}
+
+async function uploadToDrive(file) {
+  const token = await getDriveToken();
+  const meta  = JSON.stringify({ name: file.name, parents: [DRIVE_FOLDER_ID] });
+  const form  = new FormData();
+  form.append('metadata', new Blob([meta], { type: 'application/json' }));
+  form.append('file', file);
+  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink', {
+    method:  'POST',
+    headers: { Authorization: 'Bearer ' + token },
+    body:    form
+  });
+  if (!res.ok) throw new Error('Drive upload failed: ' + res.status);
+  return await res.json();
+}
+
+async function saveFileMeta(driveFile, taskId = null) {
+  await sbClient.from('files').insert({
+    file_id:       driveFile.id,
+    filename:      driveFile.name,
+    drive_file_id: driveFile.id,
+    web_view_link: driveFile.webViewLink,
+    task_id:       taskId,
+    uploaded_by:   'user',
+  });
+}
+
+async function sendMessageWithFiles() {
+  const input   = document.getElementById('msg-input');
+  const text    = input.value.trim();
+  const files   = [...pendingFiles];
+  const progress = document.getElementById('upload-progress');
+
+  if (!text && files.length === 0) return;
+  input.value = '';
+  autoResize(input);
+
+  if (DEMO_MODE) {
+    if (text) appendMsg({ sender_id:'user', sender_name:'YOU', sender_css:'user', content:text, created_at:new Date().toISOString(), system:false });
+    files.forEach(f => appendMsg({ sender_id:'user', sender_name:'YOU', sender_css:'user', content:`📎 ${f.name} (demo — ไม่ได้ upload จริง)`, created_at:new Date().toISOString(), system:false }));
+    clearFiles();
+    scrollBottom();
+    demoReply();
+    return;
+  }
+
+  // ส่งข้อความก่อน
+  if (text) {
+    await sbClient.from('messages').insert({
+      content:text, sender_id:'user', sender_name:'YOU', sender_type:'user', room_id:'hq'
+    });
+  }
+
+  // upload ทีละไฟล์
+  for (const file of files) {
+    try {
+      progress.textContent = `⬆ uploading ${file.name}…`;
+      const driveFile = await uploadToDrive(file);
+      await saveFileMeta(driveFile);
+      await sbClient.from('messages').insert({
+        content:     `📎 [${driveFile.name}](${driveFile.webViewLink})`,
+        sender_id:   'user', sender_name:'YOU',
+        sender_type: 'user', room_id:'hq'
+      });
+    } catch(e) {
+      console.error(e);
+      progress.textContent = `❌ upload failed: ${file.name}`;
+      await new Promise(r => setTimeout(r, 2000));
+    }
+  }
+  progress.textContent = '';
+  clearFiles();
+  scrollBottom();
 }
 
 // ──────────────────────────────────────────────

@@ -125,6 +125,12 @@
     font-size: 13px; line-height: 1.55; word-break: break-word;
   }
   /* YOU bubble — ขวา */
+  /* system message variants */
+  .sys-ok   { color: var(--accent) !important; }
+  .sys-warn { color: var(--col-mgr) !important; }
+  .sys-off  { color: var(--text-dim) !important; }
+  .sys-info { color: var(--text-dim) !important; }
+
   .sender-user .msg-group { align-items: flex-end; }
   .bubble-you {
     align-self: flex-end !important;
@@ -635,13 +641,14 @@ async function loadInitialData() {
 }
 
 function normalizeMsg(m) {
+  const isSys = m.sender_type === 'system' || m.sender_id === 'sys' || m.sender_id === 'system';
   return {
     sender_id:   m.sender_id   || 'sys',
     sender_name: m.sender_name || agentName(m.sender_id),
     sender_css:  m.sender_id   || 'sys',
     content:     m.content || m.text || '',
     created_at:  m.created_at,
-    system:      m.sender_type === 'system' || m.sender_id === 'sys'
+    system:      isSys
   };
 }
 function normalizeAgent(a) {
@@ -767,9 +774,15 @@ let lastSender = null;
 function appendMsg(m) {
   const scroll = document.getElementById('msg-scroll');
   if (m.system) {
-    const el = document.createElement('div');
+    const el  = document.createElement('div');
     el.className = 'msg-group';
-    el.innerHTML = `<div class="msg-bubble system">${esc(m.content)}</div>`;
+    const txt = m.content || '';
+    // เลือกสีตาม prefix
+    let cls = 'sys-info';
+    if (txt.startsWith('⚠') || txt.startsWith('⛔')) cls = 'sys-warn';
+    if (txt.startsWith('✓') || txt.startsWith('🛡') || txt.startsWith('▶')) cls = 'sys-ok';
+    if (txt.startsWith('🛑') || txt.startsWith('⚫')) cls = 'sys-off';
+    el.innerHTML = `<div class="msg-bubble system ${cls}">${esc(txt)}</div>`;
     scroll.appendChild(el);
     lastSender = null;
     return;

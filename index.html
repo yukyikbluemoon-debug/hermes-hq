@@ -1,0 +1,755 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>HERMES HQ</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Inter:wght@400;500;600&display=swap">
+<style>
+  :root {
+    --bg:        #0D1117;
+    --bg2:       #161B22;
+    --bg3:       #1C2330;
+    --border:    #30363D;
+    --accent:    #00E5C4;
+    --accent-dim:#007A6A;
+    --text:      #C9D1D9;
+    --text-dim:  #6E7681;
+    --text-bright:#F0F6FC;
+
+    /* Agent colors */
+    --col-user:  #58A6FF;
+    --col-mgr:   #E3B341;
+    --col-dev:   #7EE787;
+    --col-res:   #D2A8FF;
+    --col-tst:   #FF7B72;
+    --col-ana:   #79C0FF;
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'Inter', sans-serif; font-size: 14px; overflow: hidden; }
+  a { color: inherit; text-decoration: none; }
+
+  /* ── Layout ── */
+  #app { display: grid; grid-template-rows: 44px 1fr; grid-template-columns: 220px 1fr 280px; height: 100vh; }
+  @media (max-width: 900px) {
+    #app { grid-template-columns: 1fr; grid-template-rows: 44px auto 1fr 0; }
+    #sidebar, #taskpanel { display: none; }
+    #sidebar.open, #taskpanel.open { display: flex; flex-direction: column; position: fixed; z-index: 50; top: 44px; bottom: 0; width: 85vw; max-width: 320px; }
+    #sidebar.open { left: 0; }
+    #taskpanel.open { right: 0; }
+  }
+
+  /* ── Topbar ── */
+  #topbar {
+    grid-column: 1 / -1;
+    display: flex; align-items: center; gap: 12px;
+    background: var(--bg2); border-bottom: 1px solid var(--border);
+    padding: 0 16px;
+  }
+  .logo { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 15px; color: var(--accent); letter-spacing: 2px; }
+  .logo span { color: var(--text-dim); font-weight: 400; }
+  .topbar-sep { flex: 1; }
+  #conn-status { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-dim); }
+  .dot { width: 7px; height: 7px; border-radius: 50%; background: #3C4048; }
+  .dot.online { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  .dot.connecting { background: var(--col-mgr); animation: blink 1s infinite; }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+  .icon-btn { background: none; border: none; color: var(--text-dim); cursor: pointer; padding: 4px 6px; border-radius: 4px; font-size: 16px; }
+  .icon-btn:hover { color: var(--text); background: var(--bg3); }
+
+  /* ── Sidebar (agents) ── */
+  #sidebar {
+    background: var(--bg2); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  .panel-head {
+    padding: 10px 14px; font-size: 11px; font-weight: 600; letter-spacing: .8px;
+    color: var(--text-dim); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .panel-head .count { margin-left: auto; background: var(--bg3); color: var(--accent); border-radius: 10px; padding: 1px 7px; font-size: 10px; }
+  #agent-list { flex: 1; overflow-y: auto; padding: 8px 0; }
+  .agent-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 7px 14px; cursor: pointer; border-radius: 0;
+    transition: background .15s;
+  }
+  .agent-item:hover { background: var(--bg3); }
+  .agent-item.active { background: var(--bg3); }
+  .agent-icon { font-size: 18px; width: 24px; text-align: center; flex-shrink: 0; }
+  .agent-info { min-width: 0; flex: 1; }
+  .agent-name { font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 600; color: var(--text-bright); }
+  .agent-role { font-size: 11px; color: var(--text-dim); }
+  .agent-status { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+  .status-online { background: var(--accent); }
+  .status-busy   { background: var(--col-mgr); }
+  .status-idle   { background: var(--text-dim); }
+  .status-offline{ background: #3C4048; }
+
+  /* ── Chat area ── */
+  #chatarea { display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
+  #room-bar {
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px; background: var(--bg2);
+  }
+  .room-name { font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--accent); }
+  .room-desc { font-size: 12px; color: var(--text-dim); }
+  #msg-scroll { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 4px; }
+  #msg-scroll::-webkit-scrollbar { width: 4px; }
+  #msg-scroll::-webkit-scrollbar-track { background: transparent; }
+  #msg-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* ── Messages ── */
+  .msg-group { display: flex; flex-direction: column; gap: 2px; margin-bottom: 10px; }
+  .msg-header {
+    display: flex; align-items: baseline; gap: 8px;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px;
+  }
+  .msg-sender { font-weight: 700; }
+  .msg-time { color: var(--text-dim); font-size: 10px; }
+  .msg-bubble {
+    max-width: 90%; align-self: flex-start;
+    padding: 8px 12px; border-radius: 2px 8px 8px 8px;
+    background: var(--bg2); border-left: 3px solid;
+    font-size: 13px; line-height: 1.55; word-break: break-word;
+  }
+  .msg-bubble.system {
+    align-self: center; background: transparent; border-left: none;
+    color: var(--text-dim); font-size: 11px; font-style: italic;
+    text-align: center; padding: 2px 0;
+  }
+  /* sender-specific accent */
+  .sender-user .msg-sender { color: var(--col-user); }
+  .sender-user .msg-bubble  { border-color: var(--col-user); }
+  .sender-mgr  .msg-sender { color: var(--col-mgr); }
+  .sender-mgr  .msg-bubble  { border-color: var(--col-mgr); }
+  .sender-dev  .msg-sender { color: var(--col-dev); }
+  .sender-dev  .msg-bubble  { border-color: var(--col-dev); }
+  .sender-res  .msg-sender { color: var(--col-res); }
+  .sender-res  .msg-bubble  { border-color: var(--col-res); }
+  .sender-tst  .msg-sender { color: var(--col-tst); }
+  .sender-tst  .msg-bubble  { border-color: var(--col-tst); }
+  .sender-ana  .msg-sender { color: var(--col-ana); }
+  .sender-ana  .msg-bubble  { border-color: var(--col-ana); }
+
+  /* ── Input area ── */
+  #input-area {
+    display: flex; align-items: flex-end; gap: 10px;
+    padding: 12px 16px; border-top: 1px solid var(--border); background: var(--bg2);
+  }
+  #msg-input {
+    flex: 1; background: var(--bg3); border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text-bright); font-family: 'Inter', sans-serif; font-size: 13px;
+    padding: 9px 12px; resize: none; outline: none; min-height: 40px; max-height: 120px;
+    line-height: 1.5;
+  }
+  #msg-input:focus { border-color: var(--accent-dim); }
+  #msg-input::placeholder { color: var(--text-dim); }
+  #send-btn {
+    background: var(--accent); color: #0D1117; border: none; border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 12px;
+    padding: 9px 14px; cursor: pointer; white-space: nowrap; height: 40px;
+    transition: opacity .15s;
+  }
+  #send-btn:hover { opacity: .85; }
+  #send-btn:disabled { opacity: .4; cursor: default; }
+
+  /* ── Task Panel ── */
+  #taskpanel {
+    background: var(--bg2); border-left: 1px solid var(--border);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  #task-list { flex: 1; overflow-y: auto; padding: 8px 0; }
+  .task-card {
+    margin: 6px 10px; padding: 10px 12px;
+    background: var(--bg3); border-radius: 6px; border-left: 3px solid var(--border);
+    cursor: pointer; transition: border-color .15s;
+  }
+  .task-card:hover { border-color: var(--accent-dim); }
+  .task-id { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-dim); }
+  .task-title { font-size: 12px; color: var(--text-bright); margin: 4px 0; font-weight: 500; }
+  .task-meta { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .badge {
+    font-size: 10px; padding: 1px 7px; border-radius: 10px; font-weight: 600;
+    letter-spacing: .3px; font-family: 'JetBrains Mono', monospace;
+  }
+  .badge-pending  { background: #2A2218; color: var(--col-mgr); }
+  .badge-working  { background: #162219; color: var(--col-dev); }
+  .badge-blocked  { background: #231B1B; color: var(--col-tst); }
+  .badge-completed{ background: #162219; color: var(--accent); }
+  .badge-failed   { background: #231B1B; color: var(--col-tst); }
+  .badge-agent    { background: var(--bg); color: var(--text-dim); }
+
+  /* ── Login overlay ── */
+  #login-overlay {
+    position: fixed; inset: 0; z-index: 100;
+    background: var(--bg); display: flex; align-items: center; justify-content: center;
+  }
+  .login-box {
+    background: var(--bg2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 36px 40px; width: 360px; max-width: 95vw;
+  }
+  .login-logo { font-family: 'JetBrains Mono', monospace; font-size: 22px; font-weight: 700; color: var(--accent); letter-spacing: 3px; margin-bottom: 4px; }
+  .login-sub  { font-size: 12px; color: var(--text-dim); margin-bottom: 28px; }
+  .login-field { margin-bottom: 14px; }
+  .login-field label { display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 5px; letter-spacing: .5px; }
+  .login-field input {
+    width: 100%; background: var(--bg3); border: 1px solid var(--border);
+    color: var(--text-bright); font-family: 'Inter', sans-serif; font-size: 13px;
+    padding: 9px 12px; border-radius: 5px; outline: none;
+  }
+  .login-field input:focus { border-color: var(--accent-dim); }
+  .login-btn {
+    width: 100%; margin-top: 8px; padding: 11px;
+    background: var(--accent); color: #0D1117; border: none; border-radius: 5px;
+    font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 13px;
+    cursor: pointer; letter-spacing: 1px; transition: opacity .15s;
+  }
+  .login-btn:hover { opacity: .85; }
+  .login-err { color: var(--col-tst); font-size: 12px; margin-top: 8px; display: none; }
+  .supabase-note { font-size: 11px; color: var(--text-dim); margin-top: 16px; text-align: center; line-height: 1.6; }
+  .supabase-note code { color: var(--accent); font-family: 'JetBrains Mono', monospace; font-size: 10px; }
+
+  /* ── Config modal ── */
+  #cfg-overlay {
+    position: fixed; inset: 0; z-index: 200; background: rgba(0,0,0,.7);
+    display: none; align-items: center; justify-content: center;
+  }
+  #cfg-overlay.open { display: flex; }
+  .cfg-box { background: var(--bg2); border: 1px solid var(--border); border-radius: 8px; padding: 28px 32px; width: 420px; max-width: 95vw; }
+  .cfg-box h2 { font-family: 'JetBrains Mono', monospace; font-size: 14px; color: var(--accent); margin-bottom: 18px; }
+  .cfg-field { margin-bottom: 12px; }
+  .cfg-field label { display: block; font-size: 11px; color: var(--text-dim); margin-bottom: 4px; }
+  .cfg-field input {
+    width: 100%; background: var(--bg3); border: 1px solid var(--border);
+    color: var(--text-bright); font-family: 'JetBrains Mono', monospace; font-size: 12px;
+    padding: 8px 10px; border-radius: 4px; outline: none;
+  }
+  .cfg-field input:focus { border-color: var(--accent-dim); }
+  .cfg-actions { display: flex; gap: 8px; margin-top: 16px; }
+  .cfg-save { flex: 1; padding: 9px; background: var(--accent); color: #0D1117; border: none; border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 12px; cursor: pointer; }
+  .cfg-cancel { flex: 1; padding: 9px; background: var(--bg3); color: var(--text); border: 1px solid var(--border); border-radius: 4px; font-family: 'JetBrains Mono', monospace; font-size: 12px; cursor: pointer; }
+
+  /* scrollbar */
+  #agent-list::-webkit-scrollbar, #task-list::-webkit-scrollbar { width: 3px; }
+  #agent-list::-webkit-scrollbar-thumb, #task-list::-webkit-scrollbar-thumb { background: var(--border); }
+
+  .typing-indicator { color: var(--text-dim); font-size: 11px; font-style: italic; padding: 0 16px 8px; height: 20px; }
+</style>
+</head>
+<body>
+
+<!-- ── Config Modal ── -->
+<div id="cfg-overlay">
+  <div class="cfg-box">
+    <h2>⚙ SUPABASE CONFIG</h2>
+    <div class="cfg-field">
+      <label>PROJECT URL</label>
+      <input id="cfg-url" placeholder="https://xxxx.supabase.co">
+    </div>
+    <div class="cfg-field">
+      <label>ANON PUBLIC KEY</label>
+      <input id="cfg-key" placeholder="eyJ...">
+    </div>
+    <div class="cfg-actions">
+      <button class="cfg-save" onclick="saveCfg()">SAVE</button>
+      <button class="cfg-cancel" onclick="closeCfg()">CANCEL</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Login overlay ── -->
+<div id="login-overlay">
+  <div class="login-box">
+    <div class="login-logo">HERMES HQ</div>
+    <div class="login-sub">Secure Agent Communication Hub</div>
+    <div class="login-field">
+      <label>USERNAME</label>
+      <input id="login-user" type="text" placeholder="kiat" autocomplete="username" autocorrect="off" autocapitalize="off" spellcheck="false">
+    </div>
+    <div class="login-field">
+      <label>PASSWORD</label>
+      <input id="login-pass" type="password" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()">
+    </div>
+    <button class="login-btn" onclick="doLogin()">SIGN IN →</button>
+    <div class="login-err" id="login-err"></div>
+    <div class="supabase-note">
+      ต้องตั้งค่า Supabase ก่อนใช้งาน<br>
+      กด <code>⚙ CONFIG</code> ที่มุมขวาบน<br>
+      หรือแก้ตัวแปร <code>SUPABASE_URL</code> / <code>SUPABASE_KEY</code>
+    </div>
+  </div>
+</div>
+
+<!-- ── Main App ── -->
+<div id="app">
+
+  <!-- Topbar -->
+  <header id="topbar">
+    <div class="logo">HERMES <span>HQ</span></div>
+    <div class="topbar-sep"></div>
+    <div id="conn-status">
+      <div class="dot connecting" id="conn-dot"></div>
+      <span id="conn-label">connecting…</span>
+    </div>
+    <button class="icon-btn" title="Config" onclick="openCfg()">⚙</button>
+    <button class="icon-btn" title="Agents" onclick="toggleSidebar()" id="btn-sidebar">◧</button>
+    <button class="icon-btn" title="Tasks" onclick="toggleTasks()" id="btn-tasks">⊞</button>
+    <button class="icon-btn" title="Sign out" onclick="doLogout()">⏻</button>
+  </header>
+
+  <!-- Agent Sidebar -->
+  <aside id="sidebar">
+    <div class="panel-head">AGENTS <span class="count" id="agent-count">0</span></div>
+    <div id="agent-list"></div>
+  </aside>
+
+  <!-- Chat -->
+  <main id="chatarea">
+    <div id="room-bar">
+      <span class="room-name"># HQ</span>
+      <span class="room-desc">— Hermes Team Hub</span>
+    </div>
+    <div id="msg-scroll"></div>
+    <div class="typing-indicator" id="typing-indicator"></div>
+    <div id="input-area">
+      <textarea id="msg-input" rows="1" placeholder="ส่งข้อความถึง Team…"
+        onkeydown="handleKey(event)" oninput="autoResize(this)"></textarea>
+      <button id="send-btn" onclick="sendMessage()">SEND</button>
+    </div>
+  </main>
+
+  <!-- Task Panel -->
+  <aside id="taskpanel">
+    <div class="panel-head">TASKS <span class="count" id="task-count">0</span></div>
+    <div id="task-list"></div>
+  </aside>
+
+</div>
+
+<!-- Supabase CDN -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+// ──────────────────────────────────────────────
+// CONFIG — แก้ตรงนี้ หรือใช้ปุ่ม ⚙ CONFIG
+// ──────────────────────────────────────────────
+let SUPABASE_URL = localStorage.getItem('hq_url') || 'https://YOUR_PROJECT.supabase.co';
+let SUPABASE_KEY = localStorage.getItem('hq_key') || 'YOUR_ANON_KEY';
+
+let supabase = null;
+let currentUser = null;
+let currentUserProfile = null;
+let msgChannel = null;
+let agentChannel = null;
+let taskChannel = null;
+
+// ── Demo mode (ไม่มี Supabase) ──
+const DEMO_MODE = SUPABASE_URL.includes('YOUR_PROJECT');
+
+// ──────────────────────────────────────────────
+// AGENT DEFINITIONS (ใช้ทั้ง demo และ real)
+// ──────────────────────────────────────────────
+const AGENT_DEFS = [
+  { id:'user',    icon:'👤', name:'YOU',        role:'User',       color:'var(--col-user)', css:'user', status:'online'  },
+  { id:'mgr',     icon:'👔', name:'MANAGER',    role:'Manager Bot',color:'var(--col-mgr)',  css:'mgr',  status:'online'  },
+  { id:'dev',     icon:'💻', name:'DEVELOPER',  role:'Bot Agent',  color:'var(--col-dev)',  css:'dev',  status:'busy'    },
+  { id:'res',     icon:'🔬', name:'RESEARCHER', role:'Bot Agent',  color:'var(--col-res)',  css:'res',  status:'idle'    },
+  { id:'tst',     icon:'🧪', name:'TESTER',     role:'Bot Agent',  color:'var(--col-tst)',  css:'tst',  status:'offline' },
+  { id:'ana',     icon:'📊', name:'ANALYST',    role:'Bot Agent',  color:'var(--col-ana)',  css:'ana',  status:'offline' },
+];
+
+// ── Demo messages ──
+const DEMO_MSGS = [
+  { sender:'mgr',  text:'HERMES HQ online. R0 ทดสอบ Message Hub.', ts: sub(90) },
+  { sender:'dev',  text:'Developer Agent พร้อม. รอ Task.', ts: sub(85) },
+  { sender:'res',  text:'Researcher Agent พร้อม.', ts: sub(80) },
+  { sender:'mgr',  text:'@developer @researcher ทดสอบ Agent-to-Agent communication.', ts: sub(60) },
+  { sender:'dev',  text:'รับทราบ Manager. กำลังเชื่อม API...', ts: sub(55) },
+  { sender:'res',  text:'กำลังรวบรวมข้อมูล...', ts: sub(50) },
+  { sender:'sys',  text:'── TASK-001 created: ทดสอบ Message Hub ──', ts: sub(45) },
+  { sender:'dev',  text:'API connection สำเร็จ. ไม่ต้องเปิด Browser.', ts: sub(20) },
+  { sender:'mgr',  text:'R0 verification สำเร็จ. Agents สื่อสารผ่าน Supabase API โดยตรง.', ts: sub(5) },
+];
+
+function sub(sec) {
+  const d = new Date(); d.setSeconds(d.getSeconds() - sec); return d;
+}
+
+const DEMO_TASKS = [
+  { id:'TASK-001', title:'ทดสอบ Message Hub R0', status:'completed', agent:'developer' },
+  { id:'TASK-002', title:'ตรวจสอบ LPR Pipeline', status:'working',   agent:'developer' },
+  { id:'TASK-003', title:'วิเคราะห์สาเหตุ error',  status:'pending',   agent:'researcher' },
+];
+
+// ──────────────────────────────────────────────
+// INIT
+// ──────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  renderAgents(AGENT_DEFS);
+  if (DEMO_MODE) {
+    enterDemoMode();
+  } else {
+    initSupabase();
+  }
+});
+
+function initSupabase() {
+  try {
+    supabase = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        onLogin(session.user);
+      } else {
+        showLogin();
+      }
+    });
+  } catch(e) {
+    enterDemoMode();
+  }
+}
+
+// ──────────────────────────────────────────────
+// DEMO MODE
+// ──────────────────────────────────────────────
+function enterDemoMode() {
+  document.getElementById('login-overlay').style.display = 'none';
+  setConn('online', 'DEMO MODE');
+  renderAgents(AGENT_DEFS);
+  DEMO_MSGS.forEach(m => appendMsg({
+    sender_id: m.sender,
+    sender_name: agentName(m.sender),
+    sender_css: m.sender,
+    content: m.text,
+    created_at: m.ts.toISOString(),
+    system: m.sender === 'sys'
+  }));
+  renderTasks(DEMO_TASKS);
+  scrollBottom();
+
+  // simulate typing + response on user send
+  document.getElementById('send-btn').addEventListener('click', demoReply, { once: false });
+}
+
+function demoReply() {
+  setTimeout(() => {
+    showTyping('MANAGER กำลังพิมพ์…');
+    setTimeout(() => {
+      hideTyping();
+      const replies = [
+        'รับทราบ. กำลังวิเคราะห์งาน…',
+        '@developer ตรวจสอบ request นี้ด้วย.',
+        'สร้าง Task ใหม่แล้ว. ติดตามผ่าน panel ขวามือ.',
+        'R0 ทำงานปกติ. Bot สื่อสารผ่าน API ทั้งหมด.',
+      ];
+      appendMsg({
+        sender_id:'mgr', sender_name:'MANAGER', sender_css:'mgr',
+        content: replies[Math.floor(Math.random()*replies.length)],
+        created_at: new Date().toISOString(), system: false
+      });
+      scrollBottom();
+    }, 1800);
+  }, 400);
+}
+
+// ──────────────────────────────────────────────
+// AUTH
+// ──────────────────────────────────────────────
+function showLogin() { document.getElementById('login-overlay').style.display = 'flex'; }
+function hideLogin() { document.getElementById('login-overlay').style.display = 'none'; }
+
+async function doLogin() {
+  const username = document.getElementById('login-user').value.trim().toLowerCase();
+  const pass     = document.getElementById('login-pass').value;
+  const err      = document.getElementById('login-err');
+  err.style.display = 'none';
+  if (!username) { err.textContent = 'กรุณาใส่ username'; err.style.display = 'block'; return; }
+  if (!supabase) { enterDemoMode(); return; }
+
+  // lookup email จาก profiles table ด้วย username
+  const { data: profile, error: profErr } = await supabase
+    .from('profiles')
+    .select('email')
+    .eq('username', username)
+    .single();
+
+  if (profErr || !profile) {
+    err.textContent = 'ไม่พบ username นี้ในระบบ';
+    err.style.display = 'block';
+    return;
+  }
+
+  const { data, error } = await supabase.auth.signInWithPassword({ email: profile.email, password: pass });
+  if (error) { err.textContent = error.message; err.style.display = 'block'; return; }
+  onLogin(data.user);
+}
+
+async function doLogout() {
+  if (supabase) await supabase.auth.signOut();
+  location.reload();
+}
+
+async function onLogin(user) {
+  currentUser = user;
+  hideLogin();
+  setConn('connecting', 'connecting…');
+  await loadInitialData();
+  subscribeRealtime();
+  setConn('online', 'online');
+}
+
+// ──────────────────────────────────────────────
+// DATA LOAD
+// ──────────────────────────────────────────────
+async function loadInitialData() {
+  // messages
+  const { data: msgs } = await supabase
+    .from('messages')
+    .select('*')
+    .order('created_at', { ascending: true })
+    .limit(200);
+  if (msgs) msgs.forEach(m => appendMsg(normalizeMsg(m)));
+
+  // agents
+  const { data: agents } = await supabase.from('agents').select('*');
+  if (agents) renderAgents(agents.map(normalizeAgent));
+  else renderAgents(AGENT_DEFS);
+
+  // tasks
+  const { data: tasks } = await supabase
+    .from('tasks')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(50);
+  if (tasks) renderTasks(tasks);
+
+  scrollBottom();
+}
+
+function normalizeMsg(m) {
+  return {
+    sender_id:   m.sender_id   || 'sys',
+    sender_name: m.sender_name || agentName(m.sender_id),
+    sender_css:  m.sender_id   || 'sys',
+    content:     m.content || m.text || '',
+    created_at:  m.created_at,
+    system:      m.sender_type === 'system' || m.sender_id === 'sys'
+  };
+}
+function normalizeAgent(a) {
+  const def = AGENT_DEFS.find(d => d.id === a.agent_id || d.id === a.id) || AGENT_DEFS[0];
+  return { ...def, ...a, status: a.status || 'offline' };
+}
+
+// ──────────────────────────────────────────────
+// REALTIME
+// ──────────────────────────────────────────────
+function subscribeRealtime() {
+  msgChannel = supabase
+    .channel('messages')
+    .on('postgres_changes', { event:'INSERT', schema:'public', table:'messages' }, payload => {
+      appendMsg(normalizeMsg(payload.new));
+      scrollBottom();
+    })
+    .subscribe();
+
+  agentChannel = supabase
+    .channel('agents')
+    .on('postgres_changes', { event:'*', schema:'public', table:'agents' }, payload => {
+      // refresh agent list
+      supabase.from('agents').select('*').then(({ data }) => {
+        if (data) renderAgents(data.map(normalizeAgent));
+      });
+    })
+    .subscribe();
+
+  taskChannel = supabase
+    .channel('tasks')
+    .on('postgres_changes', { event:'*', schema:'public', table:'tasks' }, payload => {
+      supabase.from('tasks').select('*').order('created_at',{ascending:false}).limit(50)
+        .then(({ data }) => { if (data) renderTasks(data); });
+    })
+    .subscribe();
+}
+
+// ──────────────────────────────────────────────
+// SEND MESSAGE
+// ──────────────────────────────────────────────
+async function sendMessage() {
+  const input = document.getElementById('msg-input');
+  const text  = input.value.trim();
+  if (!text) return;
+  input.value = '';
+  autoResize(input);
+
+  if (DEMO_MODE) {
+    appendMsg({
+      sender_id:'user', sender_name:'YOU', sender_css:'user',
+      content: text, created_at: new Date().toISOString(), system: false
+    });
+    scrollBottom();
+    demoReply();
+    return;
+  }
+
+  const { error } = await supabase.from('messages').insert({
+    content:     text,
+    sender_id:   currentUser?.id || 'user',
+    sender_name: currentUserProfile?.display_name || 'YOU',
+    sender_type: 'user',
+    room_id:     'hq',
+  });
+  if (error) console.error(error);
+}
+
+function handleKey(e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+}
+
+function autoResize(el) {
+  el.style.height = 'auto';
+  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+}
+
+// ──────────────────────────────────────────────
+// RENDER HELPERS
+// ──────────────────────────────────────────────
+function agentName(id) {
+  const d = AGENT_DEFS.find(a => a.id === id);
+  return d ? d.name : (id || 'SYSTEM').toUpperCase();
+}
+function agentIcon(id) {
+  const d = AGENT_DEFS.find(a => a.id === id); return d ? d.icon : '🤖';
+}
+function agentCss(id) {
+  const d = AGENT_DEFS.find(a => a.id === id); return d ? d.css : 'sys';
+}
+
+function renderAgents(agents) {
+  const list  = document.getElementById('agent-list');
+  const count = document.getElementById('agent-count');
+  list.innerHTML = '';
+  let online = 0;
+  agents.forEach(a => {
+    if (a.status === 'online' || a.status === 'busy') online++;
+    const item = document.createElement('div');
+    item.className = 'agent-item';
+    const statusClass = {
+      online:'status-online', busy:'status-busy',
+      idle:'status-idle', offline:'status-offline'
+    }[a.status] || 'status-offline';
+    item.innerHTML = `
+      <div class="agent-icon">${a.icon || '🤖'}</div>
+      <div class="agent-info">
+        <div class="agent-name" style="color:${a.color||'var(--text-bright)'}">${a.name||a.display_name||'AGENT'}</div>
+        <div class="agent-role">${a.role||a.type||'Agent'}</div>
+      </div>
+      <div class="agent-status ${statusClass}"></div>`;
+    list.appendChild(item);
+  });
+  count.textContent = online;
+}
+
+let lastSender = null;
+function appendMsg(m) {
+  const scroll = document.getElementById('msg-scroll');
+  if (m.system) {
+    const el = document.createElement('div');
+    el.className = 'msg-group';
+    el.innerHTML = `<div class="msg-bubble system">${esc(m.content)}</div>`;
+    scroll.appendChild(el);
+    lastSender = null;
+    return;
+  }
+  const ts = m.created_at ? fmt(new Date(m.created_at)) : '';
+  const css = m.sender_css || agentCss(m.sender_id);
+  const name = m.sender_name || agentName(m.sender_id);
+  const icon = agentIcon(m.sender_id);
+
+  // group consecutive messages from same sender
+  let group;
+  if (lastSender === m.sender_id) {
+    group = scroll.lastElementChild;
+  } else {
+    group = document.createElement('div');
+    group.className = `msg-group sender-${css}`;
+    const header = document.createElement('div');
+    header.className = 'msg-header';
+    header.innerHTML = `<span>${icon}</span><span class="msg-sender">${esc(name)}</span><span class="msg-time">${ts}</span>`;
+    group.appendChild(header);
+    scroll.appendChild(group);
+  }
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble';
+  bubble.textContent = m.content;
+  group.appendChild(bubble);
+  lastSender = m.sender_id;
+}
+
+function renderTasks(tasks) {
+  const list  = document.getElementById('task-list');
+  const count = document.getElementById('task-count');
+  list.innerHTML = '';
+  tasks.forEach(t => {
+    const card = document.createElement('div');
+    card.className = 'task-card';
+    const statusBadge = `badge-${(t.status||'pending').toLowerCase()}`;
+    const agentLabel = t.agent || t.assigned_to || t.agent_id || '—';
+    card.innerHTML = `
+      <div class="task-id">${esc(t.id||'TASK')}</div>
+      <div class="task-title">${esc(t.title||'')}</div>
+      <div class="task-meta">
+        <span class="badge ${statusBadge}">${(t.status||'pending').toUpperCase()}</span>
+        <span class="badge badge-agent">${esc(agentLabel)}</span>
+      </div>`;
+    list.appendChild(card);
+  });
+  count.textContent = tasks.length;
+}
+
+function scrollBottom() {
+  const s = document.getElementById('msg-scroll');
+  s.scrollTop = s.scrollHeight;
+}
+function showTyping(text) { document.getElementById('typing-indicator').textContent = text; }
+function hideTyping()     { document.getElementById('typing-indicator').textContent = ''; }
+
+function esc(str) { const d=document.createElement('div'); d.textContent=str||''; return d.innerHTML; }
+function fmt(d) {
+  return d.toLocaleTimeString('th-TH', { hour:'2-digit', minute:'2-digit', hour12:false });
+}
+
+// ──────────────────────────────────────────────
+// CONNECTION STATUS
+// ──────────────────────────────────────────────
+function setConn(state, label) {
+  const dot   = document.getElementById('conn-dot');
+  const lbl   = document.getElementById('conn-label');
+  dot.className = `dot ${state}`;
+  lbl.textContent = label;
+}
+
+// ──────────────────────────────────────────────
+// CONFIG
+// ──────────────────────────────────────────────
+function openCfg() {
+  document.getElementById('cfg-url').value = localStorage.getItem('hq_url') || '';
+  document.getElementById('cfg-key').value = localStorage.getItem('hq_key') || '';
+  document.getElementById('cfg-overlay').classList.add('open');
+}
+function closeCfg() { document.getElementById('cfg-overlay').classList.remove('open'); }
+function saveCfg() {
+  localStorage.setItem('hq_url', document.getElementById('cfg-url').value.trim());
+  localStorage.setItem('hq_key', document.getElementById('cfg-key').value.trim());
+  closeCfg();
+  location.reload();
+}
+
+// ──────────────────────────────────────────────
+// MOBILE TOGGLES
+// ──────────────────────────────────────────────
+function toggleSidebar() { document.getElementById('sidebar').classList.toggle('open'); }
+function toggleTasks()   { document.getElementById('taskpanel').classList.toggle('open'); }
+</script>
+</body>
+</html>

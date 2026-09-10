@@ -337,8 +337,6 @@
 // ──────────────────────────────────────────────
 // CONFIG — แก้ตรงนี้ หรือใช้ปุ่ม ⚙ CONFIG
 // ──────────────────────────────────────────────
-//let SUPABASE_URL = localStorage.getItem('hq_url') || 'https://YOUR_PROJECT.supabase.co';
-//let SUPABASE_KEY = localStorage.getItem('hq_key') || 'YOUR_ANON_KEY';
 let SUPABASE_URL = localStorage.getItem('hq_url') || 'https://acfwyzfntiuackcnarvo.supabase.co';
 let SUPABASE_KEY = localStorage.getItem('hq_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFjZnd5emZudGl1YWNrY25hcnZvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkwMjkzMTEsImV4cCI6MjEwNDYwNTMxMX0.WcfGuDP6geA_ug3v1RYy0fVDLKhizaTKfL-8bky4wRQ';
 
@@ -491,6 +489,7 @@ async function doLogin() {
 }
 
 async function doLogout() {
+  setUserOnline('offline');
   if (sbClient) await sbClient.auth.signOut();
   location.reload();
 }
@@ -502,6 +501,8 @@ async function onLogin(user) {
   await loadInitialData();
   subscribeRealtime();
   setConn('online', 'online');
+  setUserOnline('online');
+  requestNotifyPermission();
 }
 
 // ──────────────────────────────────────────────
@@ -554,8 +555,13 @@ function subscribeRealtime() {
   msgChannel = sbClient
     .channel('messages')
     .on('postgres_changes', { event:'INSERT', schema:'public', table:'messages' }, payload => {
-      appendMsg(normalizeMsg(payload.new));
+      const m = normalizeMsg(payload.new);
+      appendMsg(m);
       scrollBottom();
+      // push notification ถ้าไม่ได้อยู่หน้าเว็บ และไม่ใช่ข้อความตัวเอง
+      if (!document.hasFocus() && payload.new.sender_id !== 'user') {
+        pushNotify(m.sender_name, m.content);
+      }
     })
     .subscribe();
 
@@ -723,6 +729,46 @@ function hideTyping()     { document.getElementById('typing-indicator').textCont
 function esc(str) { const d=document.createElement('div'); d.textContent=str||''; return d.innerHTML; }
 function fmt(d) {
   return d.toLocaleTimeString('th-TH', { hour:'2-digit', minute:'2-digit', hour12:false });
+}
+
+// ──────────────────────────────────────────────
+// USER ONLINE STATUS
+// ──────────────────────────────────────────────
+function setUserOnline(status) {
+  if (!sbClient) return;
+  const name = currentUserProfile?.display_name || 'YOU';
+  sbClient.from('agents').upsert({
+    id: 'user', name: 'YOU', display_name: name,
+    icon: '👤', type: 'user', status: status,
+    last_seen: new Date().toISOString()
+  }).then(() => console.log('[USER]', status));
+}
+
+// heartbeat ทุก 60 วิ ถ้ายังเปิดหน้าเว็บอยู่
+setInterval(() => {
+  if (currentUser) setUserOnline('online');
+}, 60000);
+
+// set offline เมื่อปิดหน้าเว็บ
+window.addEventListener('beforeunload', () => setUserOnline('offline'));
+
+// ──────────────────────────────────────────────
+// PUSH NOTIFICATION
+// ──────────────────────────────────────────────
+function requestNotifyPermission() {
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
+}
+
+function pushNotify(title, body) {
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification('HERMES HQ — ' + title, {
+      body: body.substring(0, 80),
+      icon: 'https://yukyikbluemoon-debug.github.io/hermes-hq/favicon.ico',
+      tag:  'hermes-msg',
+    });
+  }
 }
 
 // ──────────────────────────────────────────────
